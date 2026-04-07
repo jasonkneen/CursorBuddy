@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.pucksapp.pucks</string>
+	<key>CFBundleDisplayName</key>
+	<string>Pucks</string>
+	<key>CFBundleName</key>
+	<string>Pucks</string>
+	<key>CFBundleExecutable</key>
+	<string>Pucks</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pucks needs microphone access for push-to-talk voice input.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Pucks needs screen capture access to take screenshots for AI context.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Pucks needs speech recognition access to transcribe your voice.</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/julianjear/makesomething-mac-app/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>/l3d2rw5ZZFRU3AadP/w2Zf8FHfhA6bKv16BQOV5OSk=</string>
+	<key>VoiceTranscriptionProvider</key>
+	<string>assemblyai</string>
+</dict>
+</plist>

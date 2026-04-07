@@ -1,0 +1,9 @@
+name = "pucks-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Set these as secrets via: wrangler secret put ANTHROPIC_API_KEY
+# ANTHROPIC_API_KEY = ""
+# ELEVENLABS_API_KEY = ""
+# ELEVENLABS_VOICE_ID = ""
