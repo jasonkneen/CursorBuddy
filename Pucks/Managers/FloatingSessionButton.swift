@@ -88,36 +88,20 @@ struct FloatingButtonView: View {
 
     var body: some View {
         Button(action: onTap) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.2, green: 0.5, blue: 1.0),
-                                Color(red: 0.1, green: 0.3, blue: 0.9)
-                            ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .shadow(
-                        color: isHovering
-                            ? Color.blue.opacity(0.6)
-                            : Color.blue.opacity(0.3),
-                        radius: isHovering ? 12 : 6,
-                        x: 0,
-                        y: 2
-                    )
-
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(.white)
-            }
-            .frame(width: 48, height: 48)
+            Image(systemName: "mic.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 48, height: 48)
             .scaleEffect(isHovering ? 1.1 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: isHovering)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glassProminent)
+        .tint(.blue)
+        .shadow(
+            color: isHovering ? Color.blue.opacity(0.45) : Color.blue.opacity(0.22),
+            radius: isHovering ? 12 : 6,
+            y: 2
+        )
         .onHover { hovering in
             isHovering = hovering
             if hovering {

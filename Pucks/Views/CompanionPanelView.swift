@@ -43,6 +43,9 @@ struct CompanionPanelView: View {
     private let fullWelcomeText = "You're all set. Hit Start to meet Pucks."
     private let privacyNote = "Nothing runs in the background. Pucks will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ."
     private let muxHLSURL = "https://stream.mux.com/e5jB8UuSrtFABVnTHCR7k3sIsmcUHCyhtLu1tzqLlfs.m3u8"
+    private let messageMaxWidth: CGFloat = 248
+    private let surfaceCornerRadius: CGFloat = 14
+    private let accentColor = Color(red: 0.34, green: 0.63, blue: 0.98)
 
     // MARK: - Computed
 
@@ -61,17 +64,19 @@ struct CompanionPanelView: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0))
-                .ignoresSafeArea()
+        GlassEffectContainer(spacing: 18) {
+            ZStack {
+                Color.white.opacity(0.015)
+                    .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                dragHeaderView
+                VStack(spacing: 0) {
+                    dragHeaderView
 
-                if !hasCompletedOnboarding {
-                    onboardingView
-                } else {
-                    mainSessionView
+                    if !hasCompletedOnboarding {
+                        onboardingView
+                    } else {
+                        mainSessionView
+                    }
                 }
             }
         }
@@ -125,12 +130,10 @@ struct CompanionPanelView: View {
             Button(action: { skipOnboardingVideo() }) {
                 Text("Skip")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.glass)
         }
     }
 
@@ -170,14 +173,9 @@ struct CompanionPanelView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(allPermissionsGranted
-                                ? Color.blue
-                                : Color.gray.opacity(0.4))
-                    )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.glassProminent)
+            .tint(allPermissionsGranted ? .blue : .gray)
             .disabled(!allPermissionsGranted)
         }
     }
@@ -241,12 +239,9 @@ struct CompanionPanelView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.blue)
-                        )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glassProminent)
+                .tint(.blue)
                 .transition(.opacity)
             }
         }
@@ -256,37 +251,8 @@ struct CompanionPanelView: View {
 
     private var mainSessionView: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                voiceStateIndicator
-                Spacer()
-                Button {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    Image(systemName: "power")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.82))
-                        .frame(width: 30, height: 30)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.08))
-                        )
-                }
-                .buttonStyle(.plain)
-                Button {
-                    isShowingSettings.toggle()
-                } label: {
-                    Image(systemName: isShowingSettings ? "xmark.circle.fill" : "gearshape.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.85))
-                        .frame(width: 30, height: 30)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.08))
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.top, 12)
+            sessionHeader
+                .padding(.top, 12)
 
             if missingRequiredPermissions {
                 mainPermissionsCard
@@ -296,37 +262,24 @@ struct CompanionPanelView: View {
                 selectedTextCard
             }
 
-            // Conversation history
-            conversationHistoryView
+            conversationSection
                 .frame(maxHeight: .infinity)
 
-            // Active transcript
-            if !companionManager.activeTurnTranscriptText.isEmpty {
-                activeTranscriptView
-            }
-
-            // Thinking indicator
             if companionManager.voiceState == .thinking {
-                HStack(spacing: 8) {
-                    BlueCursorSpinnerView()
-                        .frame(width: 18, height: 18)
-                    Text("Thinking...")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.6))
-                }
-                .padding(.vertical, 8)
+                thinkingIndicator
             }
 
             if isShowingSettings {
+                utilitySectionHeader
                 shortcutSettingsView
                 cursorSettingsView
             }
 
-            // Microphone button
-            microphoneButton
+            microphoneSection
                 .padding(.bottom, 16)
         }
         .padding(.horizontal, 16)
+        .padding(.top, 6)
     }
 
     private var dragHeaderView: some View {
@@ -342,18 +295,55 @@ struct CompanionPanelView: View {
             Spacer()
         }
         .padding(.horizontal, 16)
-        .padding(.top, 12)
+        .padding(.top, 28)
         .padding(.bottom, 10)
-        .background(
-            LinearGradient(
-                colors: [Color.white.opacity(0.05), Color.white.opacity(0.02)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+        }
     }
 
-    private var voiceStateIndicator: some View {
+    private var sessionHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Pucks")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+
+                Text(headerSubtitle)
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.55))
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                voiceStateBadge
+
+                Button {
+                    isShowingSettings.toggle()
+                } label: {
+                    Image(systemName: isShowingSettings ? "xmark.circle.fill" : "slider.horizontal.3")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glass)
+
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glass)
+            }
+        }
+    }
+
+    private var voiceStateBadge: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(voiceStateColor)
@@ -361,10 +351,11 @@ struct CompanionPanelView: View {
 
             Text(voiceStateLabel)
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.7))
-
-            Spacer()
+                .foregroundColor(.white.opacity(0.78))
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .capsule)
     }
 
     private var selectedTextCard: some View {
@@ -377,7 +368,7 @@ struct CompanionPanelView: View {
                 Button("Suggest Rewrite") {
                     companionManager.suggestForSelectedText()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glass)
                 .controlSize(.small)
                 .disabled(companionManager.voiceState == .thinking || companionManager.voiceState == .listening)
             }
@@ -390,14 +381,7 @@ struct CompanionPanelView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                )
-        )
+        .glassEffect(.regular.tint(.white.opacity(0.045)), in: .rect(cornerRadius: surfaceCornerRadius))
         .padding(.top, 8)
     }
 
@@ -419,14 +403,9 @@ struct CompanionPanelView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.75))
                         .frame(width: 24, height: 24)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.07))
-                        )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
             }
 
             Text("Pucks cannot record until the missing permissions below are granted.")
@@ -472,23 +451,16 @@ struct CompanionPanelView: View {
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.orange.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.orange.opacity(0.18), lineWidth: 1)
-                )
-        )
+        .glassEffect(.regular.tint(.white.opacity(0.045)), in: .rect(cornerRadius: surfaceCornerRadius))
         .padding(.top, 8)
     }
 
     private var voiceStateColor: Color {
         switch companionManager.voiceState {
-        case .idle: return .gray
-        case .listening: return .red
-        case .thinking: return .blue
-        case .speaking: return .green
+        case .idle: return .white.opacity(0.45)
+        case .listening: return accentColor
+        case .thinking: return .white.opacity(0.7)
+        case .speaking: return .white.opacity(0.7)
         }
     }
 
@@ -501,45 +473,64 @@ struct CompanionPanelView: View {
         }
     }
 
+    private var conversationSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Conversation", systemImage: "bubble.left.and.bubble.right")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.82))
+
+            conversationHistoryView
+                .frame(maxHeight: .infinity)
+
+            if !companionManager.activeTurnTranscriptText.isEmpty {
+                activeTranscriptView
+            }
+        }
+        .padding(12)
+        .glassEffect(.regular.tint(.white.opacity(0.03)), in: .rect(cornerRadius: surfaceCornerRadius))
+        .padding(.top, 8)
+    }
+
     private var conversationHistoryView: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(companionManager.conversationHistory) { turn in
-                        VStack(alignment: .leading, spacing: 6) {
-                            // User message
-                            HStack {
-                                Spacer()
-                                Text(turn.userTranscript)
-                                    .font(.body)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color.blue.opacity(0.3))
+                    if companionManager.conversationHistory.isEmpty {
+                        Text("Start a session and the conversation will appear here.")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.5))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                    } else {
+                        ForEach(companionManager.conversationHistory) { turn in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Spacer(minLength: 56)
+                                    messageBubble(
+                                        turn.userTranscript,
+                                        roleLabel: "You",
+                                        tint: accentColor.opacity(0.18),
+                                        alignment: .trailing
                                     )
-                            }
+                                }
 
-                            // Assistant message
-                            HStack {
-                                Text(turn.assistantResponse)
-                                    .font(.body)
-                                    .foregroundColor(.white.opacity(0.9))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color.white.opacity(0.08))
+                                HStack {
+                                    messageBubble(
+                                        turn.assistantResponse,
+                                        roleLabel: "Pucks",
+                                        tint: .white.opacity(0.05),
+                                        alignment: .leading
                                     )
-                                Spacer()
+                                    Spacer(minLength: 56)
+                                }
                             }
+                            .id(turn.id)
                         }
-                        .id(turn.id)
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
             }
+            .scrollIndicators(.hidden)
             .onChange(of: companionManager.conversationHistory.count) {
                 if let lastTurn = companionManager.conversationHistory.last {
                     withAnimation {
@@ -550,53 +541,91 @@ struct CompanionPanelView: View {
         }
     }
 
-    private var activeTranscriptView: some View {
-        HStack {
-            Spacer()
-            Text(companionManager.activeTurnTranscriptText)
-                .font(.body)
-                .foregroundColor(.white.opacity(0.7))
-                .italic()
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.blue.opacity(0.15))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(Color.blue.opacity(0.2), lineWidth: 1)
-                        )
+    private var microphoneSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(primaryActionTitle)
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.82))
+
+                Spacer()
+
+                if !missingRequiredPermissions {
+                    Text(shortcutConfig.label)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.58))
+                }
+            }
+
+            Button(action: {
+                toggleRecording()
+            }) {
+                Label(
+                    companionManager.voiceState == .listening ? "Stop Listening" : "Start Listening",
+                    systemImage: companionManager.voiceState == .listening ? "stop.fill" : "mic.fill"
                 )
+                .font(.system(size: 14, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.glassProminent)
+            .tint(accentColor)
+            .disabled(companionManager.voiceState == .thinking)
+            .opacity(companionManager.voiceState == .thinking ? 0.5 : 1.0)
+
+            Text(primaryActionCaption)
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.5))
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .glassEffect(.regular.tint(accentColor.opacity(0.08)), in: .rect(cornerRadius: surfaceCornerRadius))
+        .padding(.top, 10)
     }
 
-    private var microphoneButton: some View {
-        Button(action: {
-            toggleRecording()
-        }) {
-            ZStack {
-                Circle()
-                    .fill(
-                        companionManager.voiceState == .listening
-                            ? Color.red
-                            : Color.blue
-                    )
-                    .frame(width: 48, height: 48)
-                    .shadow(
-                        color: (companionManager.voiceState == .listening ? Color.red : Color.blue).opacity(0.4),
-                        radius: 7,
-                        y: 2
-                    )
+    private var activeTranscriptView: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            Text("Live Transcript")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.5))
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
-                Image(systemName: companionManager.voiceState == .listening ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundColor(.white)
-            }
+            Text(companionManager.activeTurnTranscriptText)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.72))
+                .italic()
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: messageMaxWidth, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .glassEffect(.regular.tint(.white.opacity(0.04)), in: .rect(cornerRadius: 10))
         }
-        .buttonStyle(.plain)
-        .disabled(companionManager.voiceState == .thinking)
-        .opacity(companionManager.voiceState == .thinking ? 0.5 : 1.0)
+    }
+
+    private var utilitySectionHeader: some View {
+        HStack {
+            Text("Utilities")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.5))
+            Spacer()
+        }
+        .padding(.top, 10)
+    }
+
+    private var thinkingIndicator: some View {
+        HStack(spacing: 8) {
+            BlueCursorSpinnerView()
+                .frame(width: 18, height: 18)
+            Text("Thinking…")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.6))
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassEffect(.regular.tint(.white.opacity(0.035)), in: .rect(cornerRadius: 12))
+        .padding(.top, 8)
     }
 
     private var shortcutSettingsView: some View {
@@ -608,10 +637,10 @@ struct CompanionPanelView: View {
                 Spacer()
                 Text(shortcutConfig.label)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.blue)
+                    .foregroundColor(.white.opacity(0.58))
             }
 
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Button {
                     if isCapturingShortcut {
                         stopShortcutCapture()
@@ -623,22 +652,20 @@ struct CompanionPanelView: View {
                         Image(systemName: isCapturingShortcut ? "keyboard.badge.ellipsis" : "keyboard")
                         Text(isCapturingShortcut ? "Press shortcut..." : shortcutConfig.label)
                             .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .lineLimit(1)
                     }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(isCapturingShortcut ? Color.blue.opacity(0.9) : Color.white.opacity(0.08))
-                    )
+                    .padding(.vertical, 11)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
+                .tint(isCapturingShortcut ? accentColor : .white)
 
                 Button("Reset Default") {
                     shortcutConfig.resetToDefault()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
+                .controlSize(.small)
             }
 
             Text("Click the shortcut field, then press the combo you want. Changes apply immediately.")
@@ -646,10 +673,7 @@ struct CompanionPanelView: View {
                 .foregroundColor(.white.opacity(0.5))
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.05))
-        )
+        .glassEffect(.regular.tint(.white.opacity(0.035)), in: .rect(cornerRadius: surfaceCornerRadius))
         .padding(.top, 8)
     }
 
@@ -659,7 +683,7 @@ struct CompanionPanelView: View {
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.75))
 
-            HStack(spacing: 10) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                 ForEach(CursorStyle.allCases) { style in
                     Button {
                         cursorConfig.style = style
@@ -673,25 +697,16 @@ struct CompanionPanelView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(
-                                    cursorConfig.style == style
-                                        ? Color.blue.opacity(0.9)
-                                        : Color.white.opacity(0.06)
-                                )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(
-                                    cursorConfig.style == style
-                                        ? Color.blue.opacity(0.95)
-                                        : Color.white.opacity(0.08),
-                                    lineWidth: 1
-                                )
+                        .glassEffect(
+                            .regular.tint(
+                                cursorConfig.style == style
+                                    ? .blue.opacity(0.48)
+                                    : .white.opacity(0.08)
+                            ),
+                            in: .rect(cornerRadius: 10)
                         )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.glass)
                 }
             }
 
@@ -702,17 +717,14 @@ struct CompanionPanelView: View {
                 Spacer()
                 Text(cursorConfig.scale, format: .number.precision(.fractionLength(2)))
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.blue)
+                    .foregroundColor(.white.opacity(0.62))
             }
 
             Slider(value: $cursorConfig.scale, in: 0.6...2.0, step: 0.05)
-                .tint(.blue)
+                .tint(accentColor)
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.05))
-        )
+        .glassEffect(.regular.tint(.white.opacity(0.035)), in: .rect(cornerRadius: surfaceCornerRadius))
         .padding(.top, 8)
     }
 
@@ -764,23 +776,42 @@ struct CompanionPanelView: View {
                 Button("Grant") {
                     action()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
+                .tint(accentColor)
                 .font(.caption)
-                .foregroundColor(.blue)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.blue.opacity(0.15))
-                )
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(0.05))
+        .glassEffect(
+            .regular.tint(granted ? .white.opacity(0.03) : .white.opacity(0.035)),
+            in: .rect(cornerRadius: 8)
         )
+    }
+
+    private func messageBubble(
+        _ text: String,
+        roleLabel: String,
+        tint: Color,
+        alignment: HorizontalAlignment
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(roleLabel)
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.4))
+
+            Text(text)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.92))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: messageMaxWidth, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassEffect(.regular.tint(tint), in: .rect(cornerRadius: 12))
+        }
     }
 
     // MARK: - Recording Toggle
@@ -816,6 +847,49 @@ struct CompanionPanelView: View {
         }
 
         return "\"\(normalized)\""
+    }
+
+    private var headerSubtitle: String {
+        switch companionManager.voiceState {
+        case .idle:
+            return missingRequiredPermissions ? "Finish permissions to start a voice session." : "Ready for a voice session."
+        case .listening:
+            return "Pucks is listening."
+        case .thinking:
+            return "Pucks is working on a response."
+        case .speaking:
+            return "Pucks is speaking."
+        }
+    }
+
+    private var primaryActionTitle: String {
+        switch companionManager.voiceState {
+        case .listening:
+            return "Session Live"
+        case .thinking:
+            return "Processing"
+        case .speaking:
+            return "Replying"
+        case .idle:
+            return "Voice Session"
+        }
+    }
+
+    private var primaryActionCaption: String {
+        if missingRequiredPermissions {
+            return "Grant the required permissions above before starting."
+        }
+
+        switch companionManager.voiceState {
+        case .listening:
+            return "Tap to stop, or release the push-to-talk shortcut."
+        case .thinking:
+            return "A response is being prepared."
+        case .speaking:
+            return "Tap to start a new turn when ready."
+        case .idle:
+            return "Use the button or hold the push-to-talk shortcut."
+        }
     }
 
     // MARK: - Welcome Text Animation

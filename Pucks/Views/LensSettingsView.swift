@@ -101,17 +101,20 @@ struct LensSettingsView: View {
                             Button("White") {
                                 config.setGlassTint(.white)
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.glassProminent)
+                            .tint(.white)
 
                             Button("Cool") {
                                 config.setGlassTint(Color(red: 0.85, green: 0.93, blue: 1.0))
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.glass)
+                            .tint(Color(red: 0.85, green: 0.93, blue: 1.0))
 
                             Button("Blue") {
                                 config.setGlassTint(Color(red: 0.46, green: 0.70, blue: 1.0))
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.glass)
+                            .tint(Color(red: 0.46, green: 0.70, blue: 1.0))
                         }
                         .controlSize(.small)
 
@@ -125,10 +128,7 @@ struct LensSettingsView: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.05))
-        )
+        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 12))
         .animation(.easeInOut(duration: 0.2), value: config.isEnabled)
     }
 

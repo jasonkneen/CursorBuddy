@@ -102,6 +102,8 @@ class MenuBarPanelManager: ObservableObject {
         panel.backgroundColor = .clear
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        panel.titlebarSeparatorStyle = .none
+        panel.toolbarStyle = .unifiedCompact
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
         panel.hasShadow = true
@@ -115,9 +117,17 @@ class MenuBarPanelManager: ObservableObject {
             .environmentObject(floatingButtonManager ?? FloatingSessionButtonManager())
             .environmentObject(selectedTextMonitor ?? SelectedTextMonitor())
         let hostingView = NSHostingView(rootView: rootView)
-
         hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
-        panel.contentView = hostingView
+        hostingView.autoresizingMask = [.width, .height]
+
+        let glassView = NSGlassEffectView(frame: hostingView.frame)
+        glassView.autoresizingMask = [.width, .height]
+        glassView.cornerRadius = 28
+        glassView.style = .clear
+        glassView.tintColor = NSColor.white.withAlphaComponent(0.08)
+        glassView.contentView = hostingView
+
+        panel.contentView = glassView
 
         self.panel = panel
     }
