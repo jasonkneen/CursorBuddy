@@ -47,10 +47,12 @@ final class ElementLocationDetector: ObservableObject {
     var cursorPositionWhenNavigationStarted: CGPoint = .zero
     var isReturningToCursor: Bool = false
 
+    private var bubbleStreamingTask: Task<Void, Never>?
     private var navigationAnimationTimer: Timer?
     private var animationStartTime: Date = .now
     private var animationDuration: TimeInterval = 0.6
     private var animationTarget: CGPoint = .zero
+    private var bezierControlPoint: CGPoint = .zero
 
     // MARK: - Public API
 
@@ -159,6 +161,8 @@ final class ElementLocationDetector: ObservableObject {
     /// Resets all detection state.
     func resetDetection() {
         stopFlightAnimation()
+        bubbleStreamingTask?.cancel()
+        bubbleStreamingTask = nil
         isNavigating = false
         detectedElementScreenLocation = nil
         detectedElementBubbleText = nil
@@ -176,7 +180,27 @@ final class ElementLocationDetector: ObservableObject {
         stopFlightAnimation()
 
         animationStartTime = .now
-        animationDuration = 0.6
+
+        // Distance-based duration (0.6s – 1.4s), matching clicky
+        let startPos = cursorPositionWhenNavigationStarted
+        let endPos = animationTarget
+        let dx = endPos.x - startPos.x
+        let dy = endPos.y - startPos.y
+        let distance = sqrt(dx * dx + dy * dy)
+        animationDuration = min(max(distance / 800.0, 0.6), 1.4)
+
+        // Compute bezier control point for arc (perpendicular to flight line)
+        let midX = (startPos.x + endPos.x) / 2.0
+        let midY = (startPos.y + endPos.y) / 2.0
+        let arcHeight = min(distance * 0.2, 80.0)
+        // Perpendicular offset for the arc
+        let norm = distance > 0 ? 1.0 / distance : 0
+        let perpX = -(dy) * norm
+        let perpY = dx * norm
+        bezierControlPoint = CGPoint(
+            x: midX + perpX * arcHeight,
+            y: midY + perpY * arcHeight
+        )
 
         // Dismiss existing bubbles during flight
         navigationBubbleOpacity = 0.0
@@ -199,38 +223,45 @@ final class ElementLocationDetector: ObservableObject {
 
     private func tickFlightAnimation() {
         let elapsed = Date.now.timeIntervalSince(animationStartTime)
-        let rawProgress = min(elapsed / animationDuration, 1.0)
+        let linearProgress = min(elapsed / animationDuration, 1.0)
 
-        // Ease-out cubic
-        let t = 1.0 - pow(1.0 - rawProgress, 3)
+        // Smoothstep easing (Hermite interpolation): 3t² - 2t³
+        let t = linearProgress * linearProgress * (3.0 - 2.0 * linearProgress)
 
         let startPos = cursorPositionWhenNavigationStarted
         let endPos = animationTarget
+        let cp = bezierControlPoint
 
-        cursorPosition = CGPoint(
-            x: startPos.x + (endPos.x - startPos.x) * t,
-            y: startPos.y + (endPos.y - startPos.y) * t
-        )
+        // Quadratic bezier: B(t) = (1-t)²·P0 + 2(1-t)t·P1 + t²·P2
+        let oneMinusT = 1.0 - t
+        let bezierX = oneMinusT * oneMinusT * startPos.x
+                     + 2.0 * oneMinusT * t * cp.x
+                     + t * t * endPos.x
+        let bezierY = oneMinusT * oneMinusT * startPos.y
+                     + 2.0 * oneMinusT * t * cp.y
+                     + t * t * endPos.y
 
-        // Scale effect during flight
-        if t < 0.5 {
-            buddyFlightScale = 1.0 + 0.15 * (t * 2)
-        } else {
-            buddyFlightScale = 1.15 - 0.15 * ((t - 0.5) * 2)
-        }
+        cursorPosition = CGPoint(x: bezierX, y: bezierY)
+
+        // Rotation follows bezier tangent
+        let tangentX = 2.0 * (1.0 - t) * (cp.x - startPos.x) + 2.0 * t * (endPos.x - cp.x)
+        let tangentY = 2.0 * (1.0 - t) * (cp.y - startPos.y) + 2.0 * t * (endPos.y - cp.y)
+        triangleRotationDegrees = atan2(tangentY, tangentX) * 180.0 / .pi + 90.0
+
+        // Scale pulse: grows to 1.3x at midpoint, back to 1.0 at landing
+        buddyFlightScale = 1.0 + sin(linearProgress * .pi) * 0.3
 
         // Animation complete
-        if rawProgress >= 1.0 {
+        if linearProgress >= 1.0 {
             stopFlightAnimation()
             cursorPosition = endPos
             buddyFlightScale = 1.0
 
             if isReturningToCursor {
-                // Done returning — go back to mouse-follow mode
                 isNavigating = false
                 isReturningToCursor = false
+                triangleRotationDegrees = -35.0
             } else {
-                // Show bubble at target
                 showBubbleAtTarget()
             }
         }
@@ -239,12 +270,24 @@ final class ElementLocationDetector: ObservableObject {
     private func showBubbleAtTarget() {
         guard let label = detectedElementBubbleText, !label.isEmpty else { return }
 
-        navigationBubbleText = label
+        // Start with empty text — will stream character by character
+        navigationBubbleText = ""
 
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
             navigationBubbleOpacity = 1.0
             navigationBubbleScale = 1.0
             bubbleOpacity = 1.0
+        }
+
+        // Stream characters with 30-60ms random delays (matching clicky)
+        bubbleStreamingTask?.cancel()
+        bubbleStreamingTask = Task { @MainActor in
+            for char in label {
+                if Task.isCancelled { break }
+                navigationBubbleText.append(char)
+                let delay = Double.random(in: 0.03...0.06)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
         }
 
         // Compute display frame around the detected element

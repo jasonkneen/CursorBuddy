@@ -47,7 +47,8 @@ class MenuBarPanelManager: ObservableObject {
     private var positionObservers: [NSObjectProtocol] = []
 
     let panelWidth: CGFloat = 380
-    let panelHeight: CGFloat = 560
+    let panelHeight: CGFloat = 160
+    let panelExpandedHeight: CGFloat = 480
 
     // Environment objects to inject into the panel view
     var companionManager: CompanionManager?
@@ -174,6 +175,7 @@ class MenuBarPanelManager: ObservableObject {
         panel.hasShadow = true
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.minSize = NSSize(width: 280, height: 80)
+        panel.maxSize = NSSize(width: 420, height: 800)
         panel.contentMinSize = NSSize(width: 280, height: 80)
 
 

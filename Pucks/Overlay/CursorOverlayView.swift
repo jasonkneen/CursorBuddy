@@ -46,7 +46,7 @@ struct CursorOverlayView: View {
                     }
                     .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
                     .position(x: pos.x + 50, y: pos.y - 10)
-                    .animation(.interactiveSpring(response: 0.15, dampingFraction: 0.8), value: pos)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: pos)
                 }
 
                 // ── Suggestion chip when text is selected ──
@@ -74,7 +74,8 @@ struct CursorOverlayView: View {
                     let cursorW: CGFloat = 20
                     let cursorH: CGFloat = 28
                     let iconSize: CGFloat = 20
-                    let idleAnchorOffset = CGPoint(x: 28, y: 8)
+                    let d = cursorAppearance.distance
+                    let idleAnchorOffset = CGPoint(x: d, y: d * 0.7)
                     // When navigating, place the arrow tip on the target and leave it there.
                     let tipPos = detector.isNavigating
                         ? CGPoint(x: pos.x + cursorW / 2, y: pos.y + cursorH / 2)
@@ -86,7 +87,7 @@ struct CursorOverlayView: View {
                     cursorSymbolView(cursorW: cursorW, cursorH: cursorH, iconSize: iconSize)
                         .position(tipPos)
                         .opacity(detector.isNavigating ? 1.0 : 0.88)
-                        .animation(.interactiveSpring(response: 0.15, dampingFraction: 0.8), value: tipPos)
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: tipPos)
                 }
 
                 // ── Label bubble at target ──
@@ -116,6 +117,8 @@ struct CursorOverlayView: View {
 private extension CursorOverlayView {
     var cursorAnchorSize: CGSize {
         switch cursorAppearance.style {
+        case .triangle:
+            return CGSize(width: 16, height: 16)
         case .arrow:
             return CGSize(width: 20, height: 28)
         case .dot, .target, .ring, .diamond:
@@ -126,6 +129,17 @@ private extension CursorOverlayView {
     @ViewBuilder
     func cursorSymbolView(cursorW: CGFloat, cursorH: CGFloat, iconSize: CGFloat) -> some View {
         switch cursorAppearance.style {
+        case .triangle:
+            TriangleCursorShape()
+                .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
+                .frame(width: 16, height: 16)
+                .rotationEffect(.degrees(
+                    detector.isNavigating
+                        ? detector.triangleRotationDegrees
+                        : -35
+                ))
+                .scaleEffect(detector.buddyFlightScale * cursorAppearance.scale)
+                .shadow(color: Color(red: 0.2, green: 0.5, blue: 1.0).opacity(0.6), radius: 8 + (detector.buddyFlightScale - 1.0) * 20, x: 0, y: 0)
         case .arrow:
             BlueCursorTriangle()
                 .frame(width: cursorW, height: cursorH)
@@ -394,6 +408,24 @@ struct DiamondCursorView: View {
                 DiamondShape()
                     .stroke(Color.white.opacity(0.95), lineWidth: 2)
             )
+    }
+}
+
+/// Equilateral triangle cursor ported from clicky/sticky.
+struct TriangleCursorShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let size = min(rect.width, rect.height)
+        let height = size * sqrt(3.0) / 2.0
+
+        // Top vertex
+        path.move(to: CGPoint(x: rect.midX, y: rect.midY - height / 1.5))
+        // Bottom left vertex
+        path.addLine(to: CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3))
+        // Bottom right vertex
+        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3))
+        path.closeSubpath()
+        return path
     }
 }
 

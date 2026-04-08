@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -44,6 +45,23 @@ format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screens
         let content: String
     }
 
+    /// Anthropic-recommended resolutions for Computer Use, matched to display aspect ratio.
+    private static let computerUseResolutions: [(width: Int, height: Int, aspectRatio: Double)] = [
+        (1024, 768,  1024.0 / 768.0),   // 4:3   (legacy)
+        (1280, 800,  1280.0 / 800.0),   // 16:10  (MacBook Air/Pro)
+        (1366, 768,  1366.0 / 768.0)    // ~16:9  (external monitors)
+    ]
+
+    /// Pick the Computer Use resolution closest to the primary display's aspect ratio.
+    private func bestComputerUseResolution() -> (width: Int, height: Int) {
+        guard let screen = NSScreen.main else { return (1280, 800) }
+        let displayAR = screen.frame.width / screen.frame.height
+        let best = Self.computerUseResolutions.min(by: {
+            abs($0.aspectRatio - displayAR) < abs($1.aspectRatio - displayAR)
+        })!
+        return (best.width, best.height)
+    }
+
     func sendMessage(messages: [Message], screenshots: [String], screenLabels: [String]) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -57,6 +75,7 @@ format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screens
                     if let apiKey = APIKeyConfig.anthropicKey {
                         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
                         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+                        request.setValue("computer-use-2025-11-24", forHTTPHeaderField: "anthropic-beta")
                     }
 
                     // Build the messages array for the API
@@ -103,12 +122,22 @@ format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screens
                         }
                     }
 
+                    // Include Computer Use tool for pixel-precise element detection
+                    let resolution = self.bestComputerUseResolution()
+                    let computerTool: [String: Any] = [
+                        "type": "computer_20251124",
+                        "name": "computer",
+                        "display_width_px": resolution.width,
+                        "display_height_px": resolution.height
+                    ]
+
                     let body: [String: Any] = [
                         "model": "claude-sonnet-4-6",
                         "max_tokens": 4096,
                         "stream": true,
                         "system": self.systemPrompt,
-                        "messages": apiMessages
+                        "messages": apiMessages,
+                        "tools": [computerTool]
                     ]
 
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)

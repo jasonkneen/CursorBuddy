@@ -100,6 +100,16 @@ class CompanionManager: ObservableObject {
         attachedScreenshots.removeAll { $0.id == id }
     }
 
+    func attachDroppedImage(_ nsImage: NSImage) {
+        guard let tiffData = nsImage.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { return }
+        let base64 = jpegData.base64EncodedString()
+        let screenshot = CapturedScreenshot(image: nsImage, base64JPEG: base64, source: .file)
+        attachedScreenshots.append(screenshot)
+        print("[CompanionManager] Dropped image attached (\(attachedScreenshots.count) total).")
+    }
+
     // MARK: - Sub-Managers (set by AppDelegate)
 
     var elementDetector: ElementLocationDetector?
@@ -187,6 +197,17 @@ class CompanionManager: ObservableObject {
     }
 
     /// Stop recording and process the turn
+    /// Cancel thinking/speaking and return to idle.
+    func cancelCurrentResponse() {
+        processingTask?.cancel()
+        processingTask = nil
+        ttsClient.stopPlayback()
+        elementDetector?.resetDetection()
+        OverlayWindowManager.shared.overlayMode = .idle
+        voiceState = .idle
+        print("[CompanionManager] Response cancelled by user.")
+    }
+
     func stopSession() {
         if !dictationManager.isRecording && voiceState != .listening {
             return

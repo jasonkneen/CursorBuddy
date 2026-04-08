@@ -11,8 +11,13 @@ class CompanionAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // MARK: - Shared Instance
 
     static var shared: CompanionAppDelegate {
-        NSApp.delegate as! CompanionAppDelegate
+        guard let instance = current else {
+            fatalError("CompanionAppDelegate accessed before initialization")
+        }
+        return instance
     }
+
+    private static weak var current: CompanionAppDelegate?
 
     // MARK: - Properties
 
@@ -30,6 +35,11 @@ class CompanionAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     var selectedTextMonitor: SelectedTextMonitor?
     private var overlayWindowManager: OverlayWindowManager?
     private var voiceStateObservable: VoiceStateObservable?
+
+    override init() {
+        super.init()
+        Self.current = self
+    }
 
     // MARK: - NSApplicationDelegate
 

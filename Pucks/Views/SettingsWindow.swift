@@ -20,6 +20,7 @@ final class SettingsWindowController: NSObject, @unchecked Sendable {
         win.title = "Pucks Settings"
         win.center()
         win.isReleasedWhenClosed = false
+        win.level = .popUpMenu
         win.appearance = NSAppearance(named: .darkAqua)
         self.settingsWindow = win
         super.init()
@@ -33,10 +34,29 @@ final class SettingsWindowController: NSObject, @unchecked Sendable {
         win.contentView = hosting
     }
 
-    func show() {
+    /// Which tab to select on next show. Read by SettingsView via shared state.
+    static var pendingTab: SettingsTab?
+
+    /// Drop window level to normal so system dialogs appear above, then restore after 2s.
+    func temporarilyLowerLevel() {
+        settingsWindow.level = .normal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.settingsWindow.level = .popUpMenu
+        }
+    }
+
+    func show(tab: SettingsTab? = nil) {
+        if let tab {
+            Self.pendingTab = tab
+            NotificationCenter.default.post(name: .settingsTabChanged, object: tab)
+        }
         settingsWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+}
+
+extension Notification.Name {
+    static let settingsTabChanged = Notification.Name("settingsTabChanged")
 }
 
 // MARK: - Settings Tab
@@ -67,6 +87,12 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .apiKeys
+
+    private func onTabNotification(_ notification: Notification) {
+        if let tab = notification.object as? SettingsTab {
+            selectedTab = tab
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -111,6 +137,11 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .settingsTabChanged)) { notification in
+            if let tab = notification.object as? SettingsTab {
+                selectedTab = tab
+            }
+        }
     }
 }
 
@@ -641,6 +672,18 @@ struct AppearanceSettingsView: View {
                         .foregroundColor(.blue)
                         .frame(width: 32)
                 }
+
+                HStack(spacing: 8) {
+                    Text("Distance")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                    Slider(value: $cursorConfig.distance, in: 10...80, step: 1)
+                        .tint(.blue)
+                    Text("\(Int(cursorConfig.distance))pt")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.blue)
+                        .frame(width: 36)
+                }
             }
 
             Divider()
@@ -666,6 +709,10 @@ struct AppearanceSettingsView: View {
     @ViewBuilder
     private func cursorPreviewIcon(_ style: CursorStyle) -> some View {
         switch style {
+        case .triangle:
+            Image(systemName: "arrowtriangle.up.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Color(red: 0.2, green: 0.5, blue: 1.0))
         case .arrow:
             Image(systemName: "arrow.up.left")
                 .font(.system(size: 18, weight: .semibold))
@@ -811,7 +858,11 @@ struct PermissionsSettingsView: View {
     }
 
     private func requestScreen() {
+        SettingsWindowController.shared.temporarilyLowerLevel()
         CompanionPermissionCenter.requestScreenRecordingPermission()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
         Task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             screenGranted = await CompanionPermissionCenter.hasScreenRecordingPermissionAsync()
@@ -819,7 +870,15 @@ struct PermissionsSettingsView: View {
     }
 
     private func requestAccessibility() {
-        accessibilityGranted = CompanionPermissionCenter.requestAccessibilityPermission()
+        // Temporarily lower window level so the AX trust prompt is visible
+        SettingsWindowController.shared.temporarilyLowerLevel()
+        let granted = CompanionPermissionCenter.requestAccessibilityPermission()
+        accessibilityGranted = granted
+        if !granted {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     private func requestSpeech() {
