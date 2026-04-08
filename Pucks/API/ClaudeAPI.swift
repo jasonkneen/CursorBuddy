@@ -9,6 +9,10 @@ class ClaudeAPI {
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.pucks", category: "ClaudeAPI")
 
+    private let primaryModel = "claude-sonnet-4-6"
+    private let fallbackModels = ["claude-opus-4-6", "claude-haiku-4-5-20251001"]
+    private let overloadRetryBaseDelayNanoseconds: UInt64 = 500_000_000
+
     private let systemPrompt = """
 you're pucks, a friendly always-on companion that lives in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation
 - all lowercase, casual, warm. no emojis.
@@ -60,124 +64,31 @@ format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screens
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var request = URLRequest(url: URL(string: endpoint)!)
-                    request.httpMethod = "POST"
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    request.timeoutInterval = 60
-
-                    guard let apiKey = APIKeyConfig.anthropicKey else {
-                        throw NSError(domain: "ClaudeAPI", code: -1,
-                                      userInfo: [NSLocalizedDescriptionKey: "Anthropic API key not configured."])
-                    }
-                    request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-                    request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-
-                    // Build the messages array for the API
-                    var apiMessages: [[String: Any]] = []
-
-                    for message in messages {
-                        apiMessages.append([
-                            "role": message.role,
-                            "content": message.content
-                        ])
-                    }
-
-                    // Build the latest user message content with screenshots
-                    if !screenshots.isEmpty {
-                        var contentBlocks: [[String: Any]] = []
-
-                        for (index, base64Image) in screenshots.enumerated() {
-                            let label = index < screenLabels.count ? screenLabels[index] : "screen \(index + 1)"
-                            contentBlocks.append([
-                                "type": "text",
-                                "text": "[\(label)]"
-                            ])
-                            contentBlocks.append([
-                                "type": "image",
-                                "source": [
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": base64Image
-                                ]
-                            ])
-                        }
-
-                        // Replace last user message content with multimodal
-                        if let lastMessage = apiMessages.last, lastMessage["role"] as? String == "user" {
-                            let textContent = lastMessage["content"] as? String ?? ""
-                            contentBlocks.append([
-                                "type": "text",
-                                "text": textContent
-                            ])
-                            apiMessages[apiMessages.count - 1] = [
-                                "role": "user",
-                                "content": contentBlocks
-                            ]
-                        }
-                    }
-
-                    let body: [String: Any] = [
-                        "model": "claude-sonnet-4-6",
-                        "max_tokens": 4096,
-                        "stream": true,
-                        "system": self.systemPrompt,
-                        "messages": apiMessages
-                    ]
-
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                    let bodySize = request.httpBody?.count ?? 0
-                    self.logger.info("Claude streaming request: \(bodySize) bytes, \(screenshots.count) screenshot(s), endpoint: \(self.endpoint, privacy: .public)")
-
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw URLError(.badServerResponse)
-                    }
-
-                    guard httpResponse.statusCode == 200 else {
-                        var errorBody = ""
-                        for try await line in bytes.lines {
-                            errorBody += line
-                            if errorBody.count > 500 { break }
-                        }
-                        self.logger.error("Claude API HTTP \(httpResponse.statusCode): \(errorBody, privacy: .public)")
-                        throw NSError(domain: "ClaudeAPI", code: httpResponse.statusCode,
-                                      userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode): \(errorBody)"])
-                    }
-
-                    // Parse SSE stream
-                    var currentEvent = ""
-                    for try await line in bytes.lines {
-                        if Task.isCancelled { break }
-
-                        if line.hasPrefix("event: ") {
-                            currentEvent = String(line.dropFirst(7))
-                        } else if line.hasPrefix("data: ") {
-                            let data = String(line.dropFirst(6))
-
-                            if currentEvent == "content_block_delta" {
-                                if let jsonData = data.data(using: .utf8),
-                                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                                   let delta = json["delta"] as? [String: Any],
-                                   let text = delta["text"] as? String {
-                                    continuation.yield(text)
-                                }
-                            } else if currentEvent == "message_stop" {
-                                break
-                            } else if currentEvent == "error" {
-                                if let jsonData = data.data(using: .utf8),
-                                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                                   let error = json["error"] as? [String: Any],
-                                   let message = error["message"] as? String {
-                                    throw NSError(domain: "ClaudeAPI", code: -1,
-                                                  userInfo: [NSLocalizedDescriptionKey: message])
-                                }
+                    let models = [self.primaryModel] + self.fallbackModels
+                    for modelIndex in models.indices {
+                        do {
+                            try await self.sendMessageWithModel(
+                                model: models[modelIndex],
+                                messages: messages,
+                                screenshots: screenshots,
+                                screenLabels: screenLabels,
+                                continuation: continuation
+                            )
+                            self.logger.info("Claude request succeeded with model: \(models[modelIndex], privacy: .public)")
+                            continuation.finish()
+                            return
+                        } catch {
+                            let nsError = error as NSError
+                            let isOverloaded = nsError.domain == "ClaudeAPI" && nsError.code == 529
+                            if isOverloaded && modelIndex < models.count - 1 {
+                                let delay = overloadRetryBaseDelayNanoseconds * UInt64(modelIndex + 1)
+                                self.logger.error("Model \(models[modelIndex], privacy: .public) failed with overload; retrying next model in \(Double(delay) / 1_000_000_000, privacy: .public)s")
+                                try? await Task.sleep(nanoseconds: delay)
+                                continue
                             }
+                            throw error
                         }
                     }
-
-                    continuation.finish()
                 } catch {
                     self.logger.error("Claude API error: \(error.localizedDescription, privacy: .public)")
                     continuation.finish(throwing: error)
@@ -188,5 +99,149 @@ format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screens
                 task.cancel()
             }
         }
+    }
+
+    private func sendMessageWithModel(
+        model: String,
+        messages: [Message],
+        screenshots: [String],
+        screenLabels: [String],
+        continuation: AsyncThrowingStream<String, Error>.Continuation
+    ) async throws {
+        var request = URLRequest(url: URL(string: self.endpoint)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+
+        guard let apiKey = APIKeyConfig.anthropicKey else {
+            throw NSError(domain: "ClaudeAPI", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Anthropic API key not configured."])
+        }
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        var apiMessages: [[String: Any]] = messages.map {
+            ["role": $0.role, "content": $0.content]
+        }
+
+        // Build the latest user message content with screenshots
+        if !screenshots.isEmpty {
+            var contentBlocks: [[String: Any]] = []
+
+            for (index, base64Image) in screenshots.enumerated() {
+                let label = index < screenLabels.count ? screenLabels[index] : "screen \(index + 1)"
+                contentBlocks.append([
+                    "type": "text",
+                    "text": "[\(label)]"
+                ])
+                contentBlocks.append([
+                    "type": "image",
+                    "source": [
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64Image
+                    ]
+                ])
+            }
+
+            if let lastMessage = apiMessages.last, lastMessage["role"] as? String == "user" {
+                let textContent = lastMessage["content"] as? String ?? ""
+                contentBlocks.append([
+                    "type": "text",
+                    "text": textContent
+                ])
+                apiMessages[apiMessages.count - 1] = [
+                    "role": "user",
+                    "content": contentBlocks
+                ]
+            }
+        }
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 4096,
+            "stream": true,
+            "system": self.systemPrompt,
+            "messages": apiMessages
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let bodySize = request.httpBody?.count ?? 0
+        self.logger.info("Claude streaming request: \(bodySize) bytes, \(screenshots.count) screenshot(s), model: \(model, privacy: .public), endpoint: \(self.endpoint, privacy: .public)")
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            var errorBody = ""
+            for try await line in bytes.lines {
+                errorBody += line
+                if errorBody.count > 500 { break }
+            }
+
+            let userMessage = self.parseAnthropicErrorMessage(from: errorBody)
+            self.logger.error("Claude API HTTP \(httpResponse.statusCode) using model \(model, privacy: .public): \(userMessage, privacy: .public)")
+
+            throw NSError(domain: "ClaudeAPI", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: userMessage])
+        }
+
+        // Parse SSE stream
+        var currentEvent = ""
+        for try await line in bytes.lines {
+            if Task.isCancelled { break }
+
+            if line.hasPrefix("event: ") {
+                currentEvent = String(line.dropFirst(7))
+            } else if line.hasPrefix("data: ") {
+                let data = String(line.dropFirst(6))
+
+                if currentEvent == "content_block_delta" {
+                    if let jsonData = data.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                       let delta = json["delta"] as? [String: Any],
+                       let text = delta["text"] as? String {
+                        continuation.yield(text)
+                    }
+                } else if currentEvent == "message_stop" {
+                    break
+                } else if currentEvent == "error" {
+                    if let jsonData = data.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                       let error = json["error"] as? [String: Any],
+                       let message = error["message"] as? String {
+                        let streamCode = self.parseAnthropicErrorCode(from: error)
+                        throw NSError(domain: "ClaudeAPI", code: streamCode,
+                                      userInfo: [NSLocalizedDescriptionKey: message])
+                    }
+                }
+            }
+        }
+    }
+
+    private func parseAnthropicErrorMessage(from text: String) -> String {
+        guard
+            let data = text.data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let error = json["error"] as? [String: Any],
+            let message = error["message"] as? String
+        else {
+            return text.isEmpty ? "Unknown API error" : text
+        }
+        return message
+    }
+
+    private func parseAnthropicErrorCode(from errorDict: [String: Any]) -> Int {
+        if let type = errorDict["type"] as? String, type == "overloaded_error" {
+            return 529
+        }
+        if let status = errorDict["status"] as? Int {
+            return status
+        }
+        return -1
     }
 }
