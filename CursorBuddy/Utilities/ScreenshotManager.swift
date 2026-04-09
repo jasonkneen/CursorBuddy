@@ -298,8 +298,10 @@ class CompanionScreenCapture {
             return image
         }
 
-        context.translateBy(x: 0, y: CGFloat(imageHeight))
-        context.scaleBy(x: 1.0, y: -1.0)
+        // Draw without flipping — the pixel buffer row order naturally matches
+        // JPEG convention (row 0 = top). The old translateBy/scaleBy flip was
+        // correct for on-screen display but inverted the image when extracted
+        // via makeImage() → JPEG, because JPEG treats row 0 as the top.
         context.draw(image, in: CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight))
 
         let cursorX = (cursorScreenPos.x - displayBounds.origin.x) / displayBounds.width * CGFloat(imageWidth)
