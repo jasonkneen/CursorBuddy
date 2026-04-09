@@ -37,12 +37,12 @@ export const ElementSelector: React.FC = () => {
       setSelectionBounds(null);
     };
 
-    (eventBus as any).on("selection:start", handleStart);
-    (eventBus as any).on("selection:cancel", handleStop);
+    eventBus.on("selection:start", handleStart);
+    eventBus.on("selection:cancel", handleStop);
 
     return () => {
-      (eventBus as any).off("selection:start", handleStart);
-      (eventBus as any).off("selection:cancel", handleStop);
+      eventBus.off("selection:start", handleStart);
+      eventBus.off("selection:cancel", handleStop);
     };
   }, []);
 
@@ -89,12 +89,6 @@ export const ElementSelector: React.FC = () => {
 
     // Only process if selection is meaningful (> 10px)
     if (selectionBounds.width > 10 && selectionBounds.height > 10) {
-      // Find elements within the selection rectangle
-      const elements = document.elementsFromPoint(
-        selectionBounds.x + selectionBounds.width / 2,
-        selectionBounds.y + selectionBounds.height / 2
-      );
-
       // Collect elements that overlap the selection
       const selectedElements: string[] = [];
       const allElements = document.querySelectorAll("*");
@@ -111,7 +105,7 @@ export const ElementSelector: React.FC = () => {
         }
       });
 
-      (eventBus as any).emit("selection:complete", {
+      eventBus.emit("selection:complete", {
         bounds: selectionBounds,
         html: selectedElements.slice(0, 20).join("\n"), // Cap at 20 elements
         elementCount: selectedElements.length,

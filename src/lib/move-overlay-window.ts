@@ -41,5 +41,3 @@ export function setFollowingCursor(following: boolean): void {
   window.electronAPI!.setFollowingCursor(following);
 }
 
-/** No-op — kept for API compatibility. Electron needs no async init. */
-export async function initOverlayWindowPositioning(): Promise<void> {}

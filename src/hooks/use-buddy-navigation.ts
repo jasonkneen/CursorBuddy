@@ -24,21 +24,20 @@ export function useBuddyNavigation() {
   const cancelFlightRef = useRef<(() => void) | null>(null);
   const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startReturnFlightRef = useRef<() => void>(() => {});
 
-  const {
-    buddyPosition,
-    systemCursorPosition,
-    setBuddyPosition,
-    setNavigationMode,
-    setTriangleRotationDegrees,
-    setBuddyFlightScale,
-    setNavigationBubbleText,
-    setNavigationBubbleOpacity,
-    setNavigationBubbleScale,
-    setIsReturningToCursor,
-    setCursorPositionAtNavigationStart,
-    resetToFollowingCursor,
-  } = useCursorStore();
+  // Use stable action references from the store — no reactive subscriptions needed.
+  // Position reads are done imperatively via getState() inside callbacks.
+  const setBuddyPosition = useCursorStore((s) => s.setBuddyPosition);
+  const setNavigationMode = useCursorStore((s) => s.setNavigationMode);
+  const setTriangleRotationDegrees = useCursorStore((s) => s.setTriangleRotationDegrees);
+  const setBuddyFlightScale = useCursorStore((s) => s.setBuddyFlightScale);
+  const setNavigationBubbleText = useCursorStore((s) => s.setNavigationBubbleText);
+  const setNavigationBubbleOpacity = useCursorStore((s) => s.setNavigationBubbleOpacity);
+  const setNavigationBubbleScale = useCursorStore((s) => s.setNavigationBubbleScale);
+  const setIsReturningToCursor = useCursorStore((s) => s.setIsReturningToCursor);
+  const setCursorPositionAtNavigationStart = useCursorStore((s) => s.setCursorPositionAtNavigationStart);
+  const resetToFollowingCursor = useCursorStore((s) => s.resetToFollowingCursor);
 
   /** Cancel any in-progress animation and clean up timers */
   const cancelEverything = useCallback(() => {
@@ -105,7 +104,7 @@ export function useBuddyNavigation() {
             const stillPointing =
               useCursorStore.getState().navigationMode === "pointing-at-target";
             if (!stillPointing) return;
-            startReturnFlight();
+            startReturnFlightRef.current();
           }, 500);
         }, DS.pointingHoldDurationMs);
       });
@@ -165,6 +164,9 @@ export function useBuddyNavigation() {
     setCursorPositionAtNavigationStart,
     resetToFollowingCursor,
   ]);
+
+  // Keep the ref in sync so startPointing always calls the latest version
+  startReturnFlightRef.current = startReturnFlight;
 
   /** Phase 1: Fly to target element */
   const flyToElement = useCallback(

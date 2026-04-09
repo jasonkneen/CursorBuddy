@@ -5,8 +5,8 @@
  * Child components render at FIXED LOCAL positions within it — the
  * viewport itself moves to place them at the correct screen location.
  *
- * - Tauri mode: the viewport IS the window. moveOverlayWindow() sets
- *   the window position imperatively at ~60fps (no React in the loop).
+ * - Electron mode: the viewport IS the window. moveOverlayWindow() sets
+ *   the Electron window.setPosition() imperatively at ~60fps (no React in the loop).
  * - Browser mode: a CSS-transformed div mimics the moving window,
  *   with a spring transition for smooth cursor following.
  */
@@ -14,10 +14,7 @@
 import React from "react";
 import { useCursorStore } from "../stores/cursor-store";
 import { DS } from "../lib/design-tokens";
-
-function isElectronEnvironment(): boolean {
-  return typeof window !== "undefined" && window.electronAPI !== undefined;
-}
+import { isElectronEnvironment } from "../lib/is-electron";
 
 export const OverlayViewport: React.FC<{ children: React.ReactNode }> = ({
   children,

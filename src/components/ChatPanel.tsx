@@ -12,6 +12,8 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { eventBus } from "../events/event-bus";
 import { parsePointingCoordinates } from "../lib/point-tag-parser";
 import { DS } from "../lib/design-tokens";
+import { useChatIPC } from "../hooks/use-chat-ipc";
+import type { InferenceChunk, TranscriptData } from "../hooks/use-chat-ipc";
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -21,6 +23,8 @@ interface ChatMessage {
   content: string;
   timestamp: number;
   isStreaming?: boolean;
+  isThinking?: boolean;
+  thinkingDurationMs?: number;
 }
 
 // ── Styles (derived from design tokens) ───────────────────
@@ -39,14 +43,8 @@ const COLORS = {
   sans: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
 } as const;
 
-/** Blink keyframe for streaming cursor — injected once, not per render */
-const BLINK_STYLE_ID = "cursor-buddy-blink";
-if (typeof document !== "undefined" && !document.getElementById(BLINK_STYLE_ID)) {
-  const style = document.createElement("style");
-  style.id = BLINK_STYLE_ID;
-  style.textContent = "@keyframes blink { 0%,50% { opacity:1 } 51%,100% { opacity:0 } }";
-  document.head.appendChild(style);
-}
+/** Style ID for shared chat panel keyframes */
+const CHAT_PANEL_STYLE_ID = "cursor-buddy-chat-panel-styles";
 
 // ── Component ─────────────────────────────────────────────
 
@@ -57,6 +55,26 @@ export const ChatPanel: React.FC<{ height?: number }> = ({ height }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const streamingTextRef = useRef("");
+  const thinkingStateRef = useRef<{
+    messageId: string | null;
+    startedAt: number | null;
+    totalMs: number;
+  }>({ messageId: null, startedAt: null, totalMs: 0 });
+
+  // ── Inject keyframe styles once on mount ───────────────────
+  useEffect(() => {
+    if (typeof document === "undefined" || document.getElementById(CHAT_PANEL_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = CHAT_PANEL_STYLE_ID;
+    style.textContent = `
+      @keyframes cursor-buddy-blink { 0%,50% { opacity:1 } 51%,100% { opacity:0 } }
+      @keyframes cursor-buddy-thinking-pulse {
+        0%,100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.16); }
+        50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
 
   // Auto-scroll to bottom on new messages
   const scrollToBottom = useCallback(() => {
@@ -65,90 +83,151 @@ export const ChatPanel: React.FC<{ height?: number }> = ({ height }) => {
 
   useEffect(scrollToBottom, [messages, scrollToBottom]);
 
-  // ── Listen for inference chunks ───────────────────────────
-  useEffect(() => {
-    if (!window.electronAPI?.onInferenceChunk) return;
+  // ── Helpers for thinking chip state ─────────────────────────
 
-    const unsubscribe = window.electronAPI.onInferenceChunk((chunk) => {
-      if (chunk.type === "text" && chunk.text) {
-        streamingTextRef.current = chunk.text;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.isStreaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: chunk.text! },
-            ];
-          }
-          return prev;
-        });
-      } else if (chunk.type === "done") {
-        const finalText = streamingTextRef.current;
-        setIsStreaming(false);
+  const finalizeThinkingChip = useCallback(() => {
+    const thinking = thinkingStateRef.current;
+    if (!thinking.messageId) return;
+    if (thinking.startedAt !== null) {
+      thinking.totalMs += Date.now() - thinking.startedAt;
+      thinking.startedAt = null;
+    }
+    if (thinking.totalMs > 0) {
+      const { messageId, totalMs } = thinking;
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId
+            ? { ...msg, isThinking: false, thinkingDurationMs: totalMs }
+            : msg
+        )
+      );
+    }
+  }, []);
 
-        // Parse POINT tags and trigger cursor flight
-        const parsed = parsePointingCoordinates(finalText);
-        if (parsed.coordinate) {
-          eventBus.emit("cursor:fly-to", {
-            x: parsed.coordinate.x,
-            y: parsed.coordinate.y,
-            label: parsed.elementLabel || "element",
-          });
+  const resetThinkingState = useCallback(() => {
+    thinkingStateRef.current = { messageId: null, startedAt: null, totalMs: 0 };
+  }, []);
+
+  // Refs for IPC functions to break circular dependency between callbacks and hook
+  const speakRef = useRef<(text: string) => Promise<import("../hooks/use-chat-ipc").SpeakResult | null>>(
+    async () => null
+  );
+
+  // ── Inference chunk handler (via IPC hook) ─────────────────
+  const handleInferenceChunk = useCallback((chunk: InferenceChunk) => {
+    if (chunk.type === "thinking") {
+      const thinking = thinkingStateRef.current;
+      if (thinking.messageId) {
+        if (thinking.startedAt === null) thinking.startedAt = Date.now();
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === thinking.messageId
+              ? {
+                  ...msg,
+                  isThinking: true,
+                  thinkingDurationMs:
+                    thinking.totalMs > 0 ? thinking.totalMs : msg.thinkingDurationMs,
+                }
+              : msg
+          )
+        );
+      }
+      return;
+    }
+
+    if (chunk.type === "text" && chunk.text) {
+      finalizeThinkingChip();
+      streamingTextRef.current = chunk.text;
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.isStreaming) {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, content: chunk.text!, isThinking: false },
+          ];
         }
+        return prev;
+      });
+    } else if (chunk.type === "done") {
+      const finalText = streamingTextRef.current;
+      finalizeThinkingChip();
+      setIsStreaming(false);
 
-        // Update the last message to not be streaming, with POINT tag stripped
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.isStreaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: parsed.spokenText, isStreaming: false },
-            ];
-          }
-          return prev;
+      // Parse POINT tags and trigger cursor flight
+      const parsed = parsePointingCoordinates(finalText);
+      if (parsed.coordinate) {
+        eventBus.emit("cursor:fly-to", {
+          x: parsed.coordinate.x,
+          y: parsed.coordinate.y,
+          label: parsed.elementLabel || "element",
         });
+      }
 
-        // TTS
-        if (window.electronAPI?.speak && parsed.spokenText.trim()) {
-          eventBus.emit("cursor:set-voice-state", { state: "responding" });
-          window.electronAPI.speak(parsed.spokenText).then((result) => {
-            if (result.ok && result.audioBase64) {
+      // Update the last message to not be streaming, with POINT tag stripped
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.isStreaming) {
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              content: parsed.spokenText,
+              isStreaming: false,
+              isThinking: false,
+            },
+          ];
+        }
+        return prev;
+      });
+
+      // TTS
+      if (parsed.spokenText.trim()) {
+        eventBus.emit("cursor:set-voice-state", { state: "responding" });
+        speakRef.current(parsed.spokenText)
+          .then((result) => {
+            if (result?.ok && result.audioBase64) {
               playAudioBase64(result.audioBase64, result.mimeType || "audio/mpeg");
             }
             eventBus.emit("cursor:set-voice-state", { state: "idle" });
+          })
+          .catch(() => {
+            console.warn("[ChatPanel] TTS speak() failed, resetting voice state");
+            eventBus.emit("cursor:set-voice-state", { state: "idle" });
           });
-        }
-
-        streamingTextRef.current = "";
-      } else if (chunk.type === "error") {
-        setIsStreaming(false);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "system",
-            content: `Error: ${chunk.error}`,
-            timestamp: Date.now(),
-          },
-        ]);
       }
-    });
 
-    return unsubscribe;
+      streamingTextRef.current = "";
+      resetThinkingState();
+    } else if (chunk.type === "error") {
+      finalizeThinkingChip();
+      resetThinkingState();
+      setIsStreaming(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "system",
+          content: `Error: ${chunk.error}`,
+          timestamp: Date.now(),
+        },
+      ]);
+    }
+  }, [finalizeThinkingChip, resetThinkingState]);
+
+  // ── Transcript handler (via IPC hook) ──────────────────────
+  // Uses a ref to avoid circular deps: handleTranscript -> sendMessage -> runInference -> useChatIPC
+  const sendMessageRef = useRef<(text: string) => void>(() => {});
+  const handleTranscript = useCallback((data: TranscriptData) => {
+    if (data.isFinal && data.text.trim()) {
+      sendMessageRef.current(data.text.trim());
+    }
   }, []);
 
-  // ── Listen for STT transcripts ────────────────────────────
-  useEffect(() => {
-    if (!window.electronAPI?.onTranscript) return;
-
-    const unsubscribe = window.electronAPI.onTranscript((data) => {
-      if (data.isFinal && data.text.trim()) {
-        sendMessage(data.text.trim());
-      }
-    });
-
-    return unsubscribe;
-  }, []);
+  // ── Wire up Electron IPC via hook ──────────────────────────
+  const { runInference, speak } = useChatIPC({
+    onInferenceChunk: handleInferenceChunk,
+    onTranscript: handleTranscript,
+  });
 
   // ── Send message ──────────────────────────────────────────
   const sendMessage = useCallback(
@@ -170,6 +249,12 @@ export const ChatPanel: React.FC<{ height?: number }> = ({ height }) => {
         isStreaming: true,
       };
 
+      thinkingStateRef.current = {
+        messageId: assistantMsg.id,
+        startedAt: null,
+        totalMs: 0,
+      };
+
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setInput("");
       setIsStreaming(true);
@@ -178,11 +263,15 @@ export const ChatPanel: React.FC<{ height?: number }> = ({ height }) => {
       // Set cursor to processing
       eventBus.emit("cursor:set-voice-state", { state: "processing" });
 
-      // Trigger inference via Electron IPC (panel preload exposes runInference)
-      window.electronAPI?.runInference?.({ transcript: text.trim() });
+      // Trigger inference via Electron IPC
+      runInference({ transcript: text.trim() });
     },
-    [isStreaming]
+    [isStreaming, runInference]
   );
+
+  // Keep refs in sync so callbacks can call latest versions
+  sendMessageRef.current = sendMessage;
+  speakRef.current = speak;
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -263,6 +352,7 @@ export const ChatPanel: React.FC<{ height?: number }> = ({ height }) => {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask CursorBuddy..."
+            aria-label="Type a message"
             disabled={isStreaming}
             rows={1}
             style={{
@@ -282,6 +372,7 @@ export const ChatPanel: React.FC<{ height?: number }> = ({ height }) => {
           <button
             onClick={() => sendMessage(input)}
             disabled={isStreaming || !input.trim()}
+            aria-label="Send message"
             style={{
               width: 28,
               height: 28,
@@ -346,6 +437,15 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
           color: isSystem ? "#fca5a5" : COLORS.text,
         }}
       >
+        {!isUser &&
+          !isSystem &&
+          (message.isThinking || (message.thinkingDurationMs ?? 0) > 0) && (
+            <ThinkingChip
+              active={Boolean(message.isThinking)}
+              durationMs={message.thinkingDurationMs ?? 0}
+            />
+          )}
+
         {/* Render content with basic code block support */}
         <MessageContent content={message.content} />
 
@@ -358,12 +458,49 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
               background: COLORS.blue,
               borderRadius: 1,
               marginLeft: 2,
-              animation: "blink 1s infinite",
+              animation: "cursor-buddy-blink 1s infinite",
               verticalAlign: "text-bottom",
             }}
           />
         )}
       </div>
+    </div>
+  );
+};
+
+// ── Thinking Chip ─────────────────────────────────────────
+
+const ThinkingChip: React.FC<{ active: boolean; durationMs: number }> = ({
+  active,
+  durationMs,
+}) => {
+  const label = active
+    ? "Thinking"
+    : `Thought for ${formatThinkingDuration(durationMs)}`;
+
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        width: "fit-content",
+        maxWidth: "100%",
+        marginBottom: 8,
+        padding: "4px 10px",
+        borderRadius: 999,
+        border: "1px solid rgba(59, 130, 246, 0.18)",
+        background: "rgba(59, 130, 246, 0.08)",
+        color: "#93c5fd",
+        fontSize: 11,
+        fontWeight: 500,
+        lineHeight: 1,
+        letterSpacing: 0.2,
+        animation: active ? "cursor-buddy-thinking-pulse 1.8s ease infinite" : undefined,
+      }}
+    >
+      <span style={{ fontSize: 10, opacity: 0.9 }}>✦</span>
+      <span>{label}</span>
     </div>
   );
 };
@@ -458,6 +595,11 @@ const MessageContent: React.FC<{ content: string }> = ({ content }) => {
 
 // ── Audio Playback Helper ─────────────────────────────────
 
+function formatThinkingDuration(durationMs: number): string {
+  const seconds = Math.max(durationMs, 100) / 1000;
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
+}
+
 function playAudioBase64(base64: string, mimeType: string): void {
   try {
     const binary = atob(base64);
@@ -467,6 +609,8 @@ function playAudioBase64(base64: string, mimeType: string): void {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     audio.onended = () => URL.revokeObjectURL(url);
-    audio.play().catch(() => {});
-  } catch (_) {}
+    audio.play().catch((err) => console.warn("[ChatPanel] audio.play() failed:", err));
+  } catch (err) {
+    console.warn("[ChatPanel] playAudioBase64 error:", err);
+  }
 }

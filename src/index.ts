@@ -157,11 +157,11 @@ export function init(options?: CursorBuddyOptions): CursorBuddyInstance {
     },
 
     on(event, handler) {
-      eventBus.on(event as any, handler as any);
+      eventBus.onDynamic(event, handler);
     },
 
     off(event, handler) {
-      eventBus.off(event as any, handler as any);
+      eventBus.offDynamic(event, handler);
     },
   };
 }

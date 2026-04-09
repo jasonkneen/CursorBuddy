@@ -133,10 +133,11 @@ export interface ConfigEvents {
 export interface SelectionEvents {
   /** Start click-drag element selection mode */
   "selection:start": void;
-  /** Selection completed — returns the selected element's bounds */
+  /** Selection completed — returns the selected region's bounds and captured HTML */
   "selection:complete": {
-    element: Element;
     bounds: { x: number; y: number; width: number; height: number };
+    html: string;
+    elementCount: number;
   };
   /** Selection cancelled */
   "selection:cancel": void;
@@ -195,6 +196,23 @@ class ClickyEventBus {
   /** Remove all listeners for an event, or all events */
   removeAllListeners(event?: EventName): void {
     this.emitter.removeAllListeners(event);
+  }
+
+  // ── Dynamic (untyped) variants for runtime-determined event names ──
+
+  /** Emit an event whose name is only known at runtime (e.g. IPC relay) */
+  emitDynamic(event: string, payload?: unknown): void {
+    this.emitter.emit(event, payload);
+  }
+
+  /** Listen for an event whose name is only known at runtime */
+  onDynamic(event: string, handler: (...args: unknown[]) => void): void {
+    this.emitter.on(event, handler);
+  }
+
+  /** Remove a dynamically-registered listener */
+  offDynamic(event: string, handler: (...args: unknown[]) => void): void {
+    this.emitter.off(event, handler);
   }
 }
 

@@ -10,6 +10,7 @@
  */
 
 import { create } from "zustand";
+import { DS } from "../lib/design-tokens";
 
 export type VoiceState = "idle" | "listening" | "processing" | "responding";
 
@@ -96,7 +97,7 @@ export const useCursorStore = create<CursorStoreState>((set) => ({
   cursorPositionAtNavigationStart: null,
   voiceState: "idle",
   audioLevel: 0,
-  triangleRotationDegrees: -35,
+  triangleRotationDegrees: DS.defaultTriangleRotation,
   buddyFlightScale: 1.0,
   navigationBubbleText: "",
   navigationBubbleOpacity: 0,
@@ -128,7 +129,7 @@ export const useCursorStore = create<CursorStoreState>((set) => ({
       flyToTarget: null,
       isReturningToCursor: false,
       cursorPositionAtNavigationStart: null,
-      triangleRotationDegrees: -35,
+      triangleRotationDegrees: DS.defaultTriangleRotation,
       buddyFlightScale: 1.0,
       navigationBubbleText: "",
       navigationBubbleOpacity: 0,

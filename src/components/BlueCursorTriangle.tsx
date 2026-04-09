@@ -18,31 +18,20 @@
  * Rotation, scale, and glow all animate. Fixed local position.
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useCursorStore } from "../stores/cursor-store";
 import { DS } from "../lib/design-tokens";
-import { runtimeConfig, onConfigChange } from "../lib/runtime-config";
-
-// Precompute the equilateral triangle vertices for a 16×16 frame
-// matching the Swift Triangle shape exactly.
-const SIZE = 16;
-const HALF = SIZE / 2;  // 8
-const TRI_HEIGHT = SIZE * Math.sqrt(3) / 2; // 13.856
-const TOP_Y = HALF - TRI_HEIGHT / 1.5;      // 8 - 9.237 = -1.237
-const BOT_Y = HALF + TRI_HEIGHT / 3;        // 8 + 4.619 = 12.619
-const LEFT_X = HALF - SIZE / 2;             // 0
-const RIGHT_X = HALF + SIZE / 2;            // 16
-const POINTS = `${HALF},${TOP_Y.toFixed(2)} ${LEFT_X},${BOT_Y.toFixed(2)} ${RIGHT_X},${BOT_Y.toFixed(2)}`;
+import { runtimeConfig } from "../lib/runtime-config";
+import { useRuntimeConfig } from "../hooks/use-runtime-config";
 
 export const BlueCursorTriangle: React.FC = () => {
   const voiceState = useCursorStore((s) => s.voiceState);
   const rotationDegrees = useCursorStore((s) => s.triangleRotationDegrees);
   const flightScale = useCursorStore((s) => s.buddyFlightScale);
   const cursorOpacity = useCursorStore((s) => s.cursorOpacity);
-  const [, forceUpdate] = useState(0);
 
   // Re-render when runtime config changes (color, size, glow)
-  useEffect(() => onConfigChange(() => forceUpdate((n) => n + 1)), []);
+  useRuntimeConfig();
 
   const color = runtimeConfig.cursorColor;
   const size = runtimeConfig.cursorSize;

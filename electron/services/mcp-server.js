@@ -11,6 +11,7 @@
  */
 
 const http = require("http");
+const crypto = require("crypto");
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { SSEServerTransport } = require("@modelcontextprotocol/sdk/server/sse.js");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
@@ -22,6 +23,17 @@ let mcpServer = null;
 let httpServer = null;
 let sseTransport = null;
 let serverPort = null;
+
+// Bearer token for authenticating /call requests
+const authToken = crypto.randomBytes(32).toString("hex");
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // same-origin / non-browser
+  try {
+    const url = new URL(origin);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch (_) { return false; }
+}
 
 function setOverlayWindow(win) {
   overlayWindow = win;
@@ -123,9 +135,12 @@ async function startSSEServer(port) {
 
   httpServer = http.createServer(async (req, res) => {
     // CORS headers for cross-origin MCP clients
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin || "";
+    if (isAllowedOrigin(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin || "http://localhost");
+    }
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method === "OPTIONS") {
       res.writeHead(200);
@@ -161,6 +176,13 @@ async function startSSEServer(port) {
 
     // Direct tool call endpoint (for CLI — doesn't need SSE session)
     if (req.url === "/call" && req.method === "POST") {
+      // Authenticate /call requests with bearer token
+      const authHeader = req.headers.authorization || "";
+      if (authHeader !== `Bearer ${authToken}`) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized — invalid or missing bearer token" }));
+        return;
+      }
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       req.on("end", async () => {
@@ -172,9 +194,7 @@ async function startSSEServer(port) {
             return;
           }
           // Find the tool handler and call it directly
-          const toolDef = null; // skip SDK internals
-          if (true) {
-            const knownTools = {
+          const knownTools = {
               cursor_fly_to: () => { sendToOverlay("cursor:fly-to", args); return { text: `Flying to (${args.x}, ${args.y})` }; },
               cursor_fly_to_anchor: () => { sendToOverlay("cursor:fly-to-anchor", args); return { text: `Flying to ${args.position}` }; },
               cursor_set_voice_state: () => { sendToOverlay("cursor:set-voice-state", args); return { text: `State → ${args.state}` }; },
@@ -184,17 +204,16 @@ async function startSSEServer(port) {
               tts_speak: () => { sendToOverlay("tts:speak-request", args); return { text: `Speaking: ${(args.text || "").slice(0, 50)}` }; },
               screenshot_capture: async () => { const s = await captureAllScreens(); return { text: `${s.length} screen(s) captured`, screens: s.length }; },
             };
-            const handler = knownTools[tool];
-            if (handler) {
-              const result = await handler();
-              res.writeHead(200, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ ok: true, result }));
-            } else {
-              res.writeHead(404, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ error: `Unknown tool: ${tool}` }));
-            }
-            return;
+          const handler = knownTools[tool];
+          if (handler) {
+            const result = await handler();
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true, result }));
+          } else {
+            res.writeHead(404, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: `Unknown tool: ${tool}` }));
           }
+          return;
         } catch (err) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: err.message }));
@@ -270,4 +289,4 @@ async function startStdioTransport() {
   console.log("[MCP] Server running on stdio");
 }
 
-module.exports = { createMCPServer, startSSEServer, stopSSEServer, getServerStatus, startStdioTransport, setOverlayWindow };
+module.exports = { createMCPServer, startSSEServer, stopSSEServer, getServerStatus, startStdioTransport, setOverlayWindow, authToken };

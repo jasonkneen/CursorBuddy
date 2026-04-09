@@ -6,10 +6,11 @@
  * to the right of the buddy triangle.
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useCursorStore } from "../stores/cursor-store";
 import { DS } from "../lib/design-tokens";
-import { runtimeConfig, onConfigChange } from "../lib/runtime-config";
+import { runtimeConfig } from "../lib/runtime-config";
+import { useRuntimeConfig } from "../hooks/use-runtime-config";
 
 export const NavigationBubble: React.FC = () => {
   const navigationMode = useCursorStore((s) => s.navigationMode);
@@ -20,8 +21,7 @@ export const NavigationBubble: React.FC = () => {
   const isVisible =
     navigationMode === "pointing-at-target" && bubbleText.length > 0;
 
-  const [, forceUpdate] = useState(0);
-  useEffect(() => onConfigChange(() => forceUpdate((n) => n + 1)), []);
+  useRuntimeConfig();
   const color = runtimeConfig.cursorColor;
 
   if (!isVisible) return null;

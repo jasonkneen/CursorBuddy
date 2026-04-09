@@ -18,6 +18,7 @@
 import React, { useEffect } from "react";
 import { useCursorTracking } from "../hooks/use-cursor-tracking";
 import { useBuddyNavigation } from "../hooks/use-buddy-navigation";
+import { useElectronBridge } from "../hooks/use-electron-bridge";
 import { useCursorStore } from "../stores/cursor-store";
 import { eventBus } from "../events/event-bus";
 import { OverlayViewport } from "./OverlayViewport";
@@ -25,11 +26,11 @@ import { BlueCursorTriangle } from "./BlueCursorTriangle";
 import { BlueCursorWaveform } from "./BlueCursorWaveform";
 import { BlueCursorSpinner } from "./BlueCursorSpinner";
 import { NavigationBubble } from "./NavigationBubble";
-import { setScreenBounds } from "../lib/viewport-bounds";
 
 export const CursorOverlay: React.FC = () => {
   useCursorTracking();
   useBuddyNavigation();
+  useElectronBridge();
 
   const isOverlayVisible = useCursorStore((s) => s.isOverlayVisible);
   const setVoiceState = useCursorStore((s) => s.setVoiceState);
@@ -80,103 +81,6 @@ export const CursorOverlay: React.FC = () => {
       eventBus.off("cursor:set-bubble-text", handleBubbleText);
     };
   }, [setVoiceState, setAudioLevel, setIsOverlayVisible, setNavigationBubbleText, setNavigationBubbleOpacity, setNavigationBubbleScale]);
-
-  // ── Relay panel commands to event bus (Electron only) ───────
-  useEffect(() => {
-    if (!window.electronAPI?.onOverlayCommand) return;
-
-    const unsubscribe = window.electronAPI.onOverlayCommand(
-      (command: string, payload: Record<string, unknown>) => {
-        eventBus.emit(command as any, payload);
-      }
-    );
-
-    return unsubscribe;
-  }, []);
-
-  // ── Sync screen bounds from Electron main process ──────────
-  useEffect(() => {
-    if (!window.electronAPI) return;
-
-    // Get initial bounds
-    window.electronAPI.getScreenBounds().then(setScreenBounds);
-
-    // Listen for display changes
-    const unsubscribe = window.electronAPI.onScreenBounds(setScreenBounds);
-    return unsubscribe;
-  }, []);
-
-  // ── Push-to-Talk mic capture (overlay is always alive) ────
-  // When PTT starts, capture mic audio and send PCM16 to main
-  // process for STT. This works even when the panel is closed.
-  useEffect(() => {
-    if (!window.electronAPI?.onPushToTalk) return;
-
-    let audioContext: AudioContext | null = null;
-    let mediaStream: MediaStream | null = null;
-    let scriptProcessor: ScriptProcessorNode | null = null;
-
-    const startMicCapture = async () => {
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, sampleRate: 16000 },
-        });
-        audioContext = new AudioContext({ sampleRate: 16000 });
-        const source = audioContext.createMediaStreamSource(mediaStream);
-        // ScriptProcessorNode for PCM16 extraction + audio level
-        scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-        scriptProcessor.onaudioprocess = (event) => {
-          const float32 = event.inputBuffer.getChannelData(0);
-          // Convert Float32 → Int16 PCM
-          const pcm16 = new Int16Array(float32.length);
-          let sum = 0;
-          for (let i = 0; i < float32.length; i++) {
-            const s = Math.max(-1, Math.min(1, float32[i]));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-            sum += float32[i] * float32[i];
-          }
-          window.electronAPI!.sendAudio(pcm16.buffer);
-          // Drive the waveform visualization directly via event bus
-          const rms = Math.sqrt(sum / float32.length);
-          const level = Math.min(Math.max(rms * 10, 0), 1);
-          eventBus.emit("voice:audio-level", { level });
-        };
-        source.connect(scriptProcessor);
-        scriptProcessor.connect(audioContext.destination);
-      } catch (err) {
-        console.error("[PTT Overlay] Mic capture failed:", err);
-      }
-    };
-
-    const stopMicCapture = () => {
-      if (scriptProcessor) {
-        scriptProcessor.disconnect();
-        scriptProcessor = null;
-      }
-      if (audioContext) {
-        audioContext.close().catch(() => {});
-        audioContext = null;
-      }
-      if (mediaStream) {
-        mediaStream.getTracks().forEach((t) => t.stop());
-        mediaStream = null;
-      }
-      eventBus.emit("voice:audio-level", { level: 0 });
-    };
-
-    const unsubscribe = window.electronAPI.onPushToTalk((action: string) => {
-      if (action === "start") {
-        startMicCapture();
-      } else if (action === "stop") {
-        stopMicCapture();
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      stopMicCapture();
-    };
-  }, []);
 
   if (!isOverlayVisible) return null;
 

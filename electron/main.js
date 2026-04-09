@@ -9,7 +9,7 @@
  * Cross-platform: macOS, Windows, Linux.
  */
 
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, globalShortcut, clipboard } = require("electron");
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, globalShortcut, clipboard, session } = require("electron");
 const path = require("path");
 const { execFile } = require("child_process");
 const { captureAllScreens, screenshotPointToScreenCoords, setCalibration } = require("./services/capture.js");
@@ -132,6 +132,7 @@ function createOverlayWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
   overlayWindow.setIgnoreMouseEvents(true);
@@ -172,6 +173,7 @@ function createPanelWindow(trayBounds) {
       preload: path.join(__dirname, "preload-panel.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
   panelWindow.loadFile(path.join(__dirname, "panel.html"));
@@ -633,6 +635,11 @@ ipcMain.handle("logs:list", () => {
 });
 ipcMain.handle("logs:read", (_event, filePath) => {
   try {
+    const logDir = log.getLogDir();
+    const resolved = require("path").resolve(filePath);
+    if (!resolved.startsWith(logDir)) {
+      return "Error: Access denied — path outside log directory";
+    }
     return require("fs").readFileSync(filePath, "utf-8");
   } catch (err) { return `Error: ${err.message}`; }
 });
@@ -675,10 +682,29 @@ ipcMain.handle("verify-cli", async (_event, binaryName) => {
 
 // ── App Lifecycle ─────────────────────────────────────────────
 
-app.on("before-quit", () => { app.isQuitting = true; log.event("app:quit"); log.close(); });
+app.on("before-quit", () => {
+  app.isQuitting = true;
+  log.event("app:quit");
+  log.close();
+  try { mcpClient.disconnectAll(); } catch (_) {}
+  try { toolLoader.stopWatching(); } catch (_) {}
+});
 
 app.whenReady().then(() => {
   if (process.platform === "darwin") app.dock.hide();
+
+  // ── CSP Header ──────────────────────────────────────────────
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob:; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*; font-src 'self' https://unpkg.com"
+        ],
+      },
+    });
+  });
+
   log.event("app:ready", { platform: process.platform, isDev: !app.isPackaged });
 
   createTray();

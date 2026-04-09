@@ -2,10 +2,10 @@
  * Demo Controls
  *
  * In-browser development panel for testing the cursor overlay
- * without Tauri. Lets you trigger voice states, fly-to animations,
+ * without Electron. Lets you trigger voice states, fly-to animations,
  * and audio level changes via buttons.
  *
- * Only rendered when running in a browser (not inside Tauri).
+ * Only rendered when running in a browser (not inside Electron).
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";

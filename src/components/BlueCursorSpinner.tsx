@@ -5,17 +5,17 @@
  * Renders at a fixed local position within the OverlayViewport.
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useCursorStore } from "../stores/cursor-store";
 import { DS } from "../lib/design-tokens";
-import { runtimeConfig, onConfigChange } from "../lib/runtime-config";
+import { runtimeConfig } from "../lib/runtime-config";
+import { useRuntimeConfig } from "../hooks/use-runtime-config";
 
 export const BlueCursorSpinner: React.FC = () => {
   const voiceState = useCursorStore((s) => s.voiceState);
   const cursorOpacity = useCursorStore((s) => s.cursorOpacity);
 
-  const [, forceUpdate] = useState(0);
-  useEffect(() => onConfigChange(() => forceUpdate((n) => n + 1)), []);
+  useRuntimeConfig();
   const color = runtimeConfig.cursorColor;
   const isVisible = voiceState === "processing";
 

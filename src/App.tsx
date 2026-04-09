@@ -6,7 +6,7 @@
  * absolutely within this overlay.
  *
  * In development (browser), move your mouse and use the demo controls
- * to test animations. In Tauri, the overlay is full-screen transparent
+ * to test animations. In Electron, the overlay is full-screen transparent
  * and click-through.
  */
 
@@ -15,11 +15,7 @@ import { CursorOverlay } from "./components/CursorOverlay";
 import { DemoControls } from "./components/DemoControls";
 import { ElementSelector } from "./components/ElementSelector";
 import { eventBus } from "./events/event-bus";
-
-/** True when running inside Electron, false in browser dev mode */
-function isElectronEnvironment(): boolean {
-  return typeof window !== "undefined" && window.electronAPI !== undefined;
-}
+import { isElectronEnvironment } from "./lib/is-electron";
 
 export const App: React.FC = () => {
   const [showDemoControls, setShowDemoControls] = useState(false);

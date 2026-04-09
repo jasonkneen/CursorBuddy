@@ -89,6 +89,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;f
 .tab-page{padding:0.9rem;overflow-y:auto;display:none;position:absolute;inset:0}
 .tab-page.active{display:block}
 #page-chat.active{padding:0;display:flex;flex-direction:column}
+.chat-thinking-chip{display:inline-flex;align-items:center;gap:6px;width:max-content;max-width:100%;padding:4px 10px;border-radius:999px;border:1px solid rgba(59,130,246,0.18);background:rgba(59,130,246,0.08);color:#93c5fd;font-size:0.72rem;font-weight:500;line-height:1;letter-spacing:0.2px}
+.chat-thinking-chip.is-live{animation:chat-thinking-pulse 1.8s ease infinite}
+.chat-thinking-icon{font-size:0.68rem;opacity:0.9}
+.chat-thinking-meta{opacity:0.82}
+@keyframes chat-thinking-pulse{0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,0.16)}50%{box-shadow:0 0 0 8px rgba(59,130,246,0)}}
 .content::-webkit-scrollbar{width:4px}
 .content::-webkit-scrollbar-track{background:transparent}
 .content::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
@@ -1519,10 +1524,28 @@ async function mcpRefreshLists() {
   if (servers.length === 0) {
     serverList.innerHTML = '<span style="color:#4a524e;font-size:0.8rem">No servers connected.</span>';
   } else {
-    serverList.innerHTML = servers.map(name =>
-      '<div class="cli-row"><div class="dot ok"></div><div class="info"><div class="cli-name">' + name + '</div></div>' +
-      '<button class="btn" style="flex:none;padding:2px 8px;font-size:0.7rem" onclick="mcpDisconnect(\'' + name + '\')">Disconnect</button></div>'
-    ).join('');
+    serverList.innerHTML = '';
+    servers.forEach(name => {
+      const row = document.createElement('div');
+      row.className = 'cli-row';
+      const dot = document.createElement('div');
+      dot.className = 'dot ok';
+      const info = document.createElement('div');
+      info.className = 'info';
+      const cliName = document.createElement('div');
+      cliName.className = 'cli-name';
+      cliName.textContent = name;
+      info.appendChild(cliName);
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.style.cssText = 'flex:none;padding:2px 8px;font-size:0.7rem';
+      btn.textContent = 'Disconnect';
+      btn.addEventListener('click', () => mcpDisconnect(name));
+      row.appendChild(dot);
+      row.appendChild(info);
+      row.appendChild(btn);
+      serverList.appendChild(row);
+    });
   }
   // Discovered tools
   const tools = await api.mcpListTools();
@@ -1530,9 +1553,26 @@ async function mcpRefreshLists() {
   if (tools.length === 0) {
     toolList.innerHTML = '<span style="color:#4a524e">No tools discovered.</span>';
   } else {
-    toolList.innerHTML = tools.map(t =>
-      '<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:#60a5fa">' + t.name + '</span> <span style="color:#4a524e">(' + (t.serverName||t.source||'') + ')</span><br><span style="color:#6B736F;font-size:0.75rem">' + (t.description||'') + '</span></div>'
-    ).join('');
+    toolList.innerHTML = '';
+    tools.forEach(t => {
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)';
+      const nameSpan = document.createElement('span');
+      nameSpan.style.color = '#60a5fa';
+      nameSpan.textContent = t.name;
+      const sourceSpan = document.createElement('span');
+      sourceSpan.style.color = '#4a524e';
+      sourceSpan.textContent = ' (' + (t.serverName || t.source || '') + ')';
+      const br = document.createElement('br');
+      const descSpan = document.createElement('span');
+      descSpan.style.cssText = 'color:#6B736F;font-size:0.75rem';
+      descSpan.textContent = t.description || '';
+      wrapper.appendChild(nameSpan);
+      wrapper.appendChild(sourceSpan);
+      wrapper.appendChild(br);
+      wrapper.appendChild(descSpan);
+      toolList.appendChild(wrapper);
+    });
   }
 }
 
@@ -1644,6 +1684,7 @@ function appendChatMsg(role, text, streaming) {
   if (c.children.length === 1 && c.children[0].style.textAlign === 'center') c.innerHTML = '';
 
   const row = document.createElement('div');
+  row.dataset.chatRole = role;
   row.style.cssText = 'display:flex;gap:8px;padding:8px 0;' + (role==='user'?'flex-direction:row-reverse':'');
 
   // Avatar
@@ -1659,29 +1700,83 @@ function appendChatMsg(role, text, streaming) {
     av.innerHTML = '<i class="icon-bot" style="font-size:14px"></i>';
   }
 
-  // Message body
-  const b = document.createElement('div');
-  b.style.cssText = 'flex:1;min-width:0;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:' + (role==='system'?'#fca5a5':'#e2e8f0') + ';padding-top:2px';
-  b.textContent = text;
-  if (streaming) b.id = 'chat-stream';
+  // Message stack
+  const stack = document.createElement('div');
+  stack.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;padding-top:2px';
 
+  const body = document.createElement('div');
+  body.style.cssText = 'font-size:0.9rem;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:' + (role==='system'?'#fca5a5':'#e2e8f0');
+  body.textContent = text;
+  if (streaming) body.id = 'chat-stream';
+
+  stack.appendChild(body);
   row.appendChild(av);
-  row.appendChild(b);
+  row.appendChild(stack);
   c.appendChild(row);
   c.scrollTop = c.scrollHeight;
+}
+
+function formatThinkingDuration(durationMs) {
+  const seconds = Math.max(durationMs, 100) / 1000;
+  return seconds < 10 ? seconds.toFixed(1) + 's' : Math.round(seconds) + 's';
+}
+
+function getThinkingChip(messageEl) {
+  return messageEl?.parentElement?.querySelector('.chat-thinking-chip') || null;
+}
+
+function setThinkingChipState(chip, live) {
+  const labelEl = chip.querySelector('.chat-thinking-label');
+  const metaEl = chip.querySelector('.chat-thinking-meta');
+  const totalMs = Number(chip.dataset.totalMs || '0');
+  labelEl.textContent = live ? 'Thinking' : 'Thought';
+  metaEl.textContent = live || totalMs <= 0 ? '' : 'for ' + formatThinkingDuration(totalMs);
+  chip.classList.toggle('is-live', live);
+}
+
+function ensureThinkingChip(messageEl) {
+  if (!messageEl?.parentElement) return null;
+  let chip = getThinkingChip(messageEl);
+  if (!chip) {
+    chip = document.createElement('div');
+    chip.className = 'chat-thinking-chip is-live';
+    chip.dataset.totalMs = '0';
+    chip.innerHTML = '<span class="chat-thinking-icon">✦</span><span class="chat-thinking-label">Thinking</span><span class="chat-thinking-meta"></span>';
+    messageEl.parentElement.insertBefore(chip, messageEl);
+  }
+  if (!chip.dataset.startedAt) chip.dataset.startedAt = String(Date.now());
+  setThinkingChipState(chip, true);
+  return chip;
+}
+
+function finalizeThinkingChip(messageEl) {
+  const chip = getThinkingChip(messageEl);
+  if (!chip) return null;
+  const startedAt = Number(chip.dataset.startedAt || '0');
+  const prevTotal = Number(chip.dataset.totalMs || '0');
+  const totalMs = startedAt ? prevTotal + (Date.now() - startedAt) : prevTotal;
+  chip.dataset.totalMs = String(totalMs);
+  chip.dataset.startedAt = '';
+  setThinkingChipState(chip, false);
+  return chip;
 }
 
 if (api.onInferenceChunk) {
   api.onInferenceChunk(chunk => {
     const el = document.getElementById('chat-stream');
-    if (chunk.type === 'text' && chunk.text) {
+    if (chunk.type === 'thinking') {
+      if (el) ensureThinkingChip(el);
+      document.getElementById('chat-messages').scrollTop = 999999;
+    } else if (chunk.type === 'text' && chunk.text) {
       chatStreamText = chunk.text;
+      if (el) finalizeThinkingChip(el);
       // Strip POINT tags from live display so user never sees them
       if (el) el.textContent = chunk.text.replace(/\s*\[POINT:[^\]]*\]\s*/g, '').trim();
       document.getElementById('chat-messages').scrollTop = 999999;
     } else if (chunk.type === 'done') {
       chatStreaming = false;
       if (el) {
+        finalizeThinkingChip(el);
         el.id = '';
         // Strip ALL POINT tags from displayed text (including [POINT:none])
         const cleaned = chatStreamText.replace(/\s*\[POINT:[^\]]*\]\s*/g, '').trim();
@@ -1703,6 +1798,7 @@ if (api.onInferenceChunk) {
         }
       }
     } else if (chunk.type === 'tool_use') {
+      if (el) finalizeThinkingChip(el);
       const toolEl = document.createElement('div');
       toolEl.style.cssText = 'margin:4px 0;font-size:0.8rem;color:#f59e0b;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.12);border-radius:8px;overflow:hidden;min-width:0;max-width:100%';
       // Clickable header — collapsed by default
@@ -1763,7 +1859,10 @@ if (api.onInferenceChunk) {
       setTimeout(() => { msgs.scrollTop = 999999; }, 50);
     } else if (chunk.type === 'error') {
       chatStreaming = false;
-      if (el) el.id = '';
+      if (el) {
+        finalizeThinkingChip(el);
+        el.id = '';
+      }
       appendChatMsg('system', 'Error: ' + (chunk.error||'unknown'));
       if (chatIsVoiceInitiated) send('cursor:set-voice-state', { state: 'idle' });
     }
@@ -2201,7 +2300,14 @@ function interruptCurrentResponse() {
 
   // Kill the streaming bubble if there is one
   const streamEl = document.getElementById('chat-stream');
-  if (streamEl) streamEl.id = '';
+  if (streamEl) {
+    if (streamEl.textContent.trim()) {
+      finalizeThinkingChip(streamEl);
+      streamEl.id = '';
+    } else {
+      streamEl.closest('[data-chat-role="assistant"]')?.remove();
+    }
+  }
 
   send('cursor:set-voice-state', { state: 'idle' });
 }
