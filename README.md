@@ -2,6 +2,8 @@
 
 > ⚠️ **Work in Progress** — CursorBuddy is under active development. Expect rough edges, breaking changes, and missing features. Contributions and feedback welcome.
 
+This was previously called "Pucks" which is a diverged branch and in pucks-archive branch.
+
 CursorBuddy (formerly Pucks) is a native macOS menu bar AI companion that lives in your system tray and helps you learn, think, and create through voice conversation. It can see your screen, hear you talk, point at things, and now execute tools on your behalf.
 
 ## What It Does
